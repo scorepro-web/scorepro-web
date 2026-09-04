@@ -48,6 +48,11 @@ TEMPORADA = 2023
 # Deja margen sobre el límite diario de 100, para no agotarlo por completo.
 MAX_SOLICITUDES_POR_CORRIDA = 70
 
+# Cuántos partidos como máximo se completan con estadísticas (corners/tarjetas/faltas)
+# en una sola corrida. Se mantiene bajo para no chocar con el límite de solicitudes
+# por minuto de la API (independiente del límite diario de 100).
+MAX_PARTIDOS_ESTADISTICAS_POR_CORRIDA = 25
+
 contador_solicitudes = 0
 
 
@@ -63,6 +68,11 @@ def llamar_api(endpoint: str, params: dict) -> dict:
     response = requests.get(url, headers=HEADERS, params=params, timeout=30)
     contador_solicitudes += 1
 
+    if response.status_code == 429:
+        print(f"  Límite por minuto alcanzado en {endpoint}. Pausando 20s antes de continuar...")
+        time.sleep(20)
+        return None
+
     if response.status_code != 200:
         print(f"Error {response.status_code} al llamar {endpoint}: {response.text[:200]}")
         return None
@@ -77,7 +87,7 @@ def llamar_api(endpoint: str, params: dict) -> dict:
     print(f"  [debug] {endpoint} params={params} -> {n_resultados} resultados"
           + (f" | errors={errores}" if errores else ""))
 
-    time.sleep(1)  # pausa breve entre llamadas, buena práctica con APIs gratuitas
+    time.sleep(2)  # pausa entre llamadas para no golpear el límite por minuto
     return data
 
 
@@ -329,7 +339,10 @@ def main():
 
     # Con lo que quede de cuota, completamos estadísticas (corners/tarjetas/faltas)
     # de los partidos más recientes que aún no las tengan.
-    restantes = MAX_SOLICITUDES_POR_CORRIDA - contador_solicitudes
+    restantes = min(
+        MAX_SOLICITUDES_POR_CORRIDA - contador_solicitudes,
+        MAX_PARTIDOS_ESTADISTICAS_POR_CORRIDA,
+    )
     if restantes > 0:
         pendientes = partidos_sin_estadisticas(conn, restantes)
         print(f"\nCompletando estadísticas de {len(pendientes)} partidos...")
