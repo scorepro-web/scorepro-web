@@ -37,7 +37,12 @@ HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
 LIGAS_SEGUIDAS = [
     {"id": 140, "nombre": "La Liga"},
 ]
-TEMPORADA = 2025  # temporada 2025-2026
+# IMPORTANTE: los planes gratis de API-Football solo dan acceso a un rango fijo
+# de temporadas históricas (confirmado por la propia API: "Free plans do not have
+# access to this season, try from 2022 to 2024"). Usamos 2023 por ser una temporada
+# completa (2023-2024) dentro de ese rango. Si más adelante se paga un plan superior,
+# se puede subir este valor a la temporada actual.
+TEMPORADA = 2023
 
 # Límite de seguridad: cuántas solicitudes máximo hace este script por corrida.
 # Deja margen sobre el límite diario de 100, para no agotarlo por completo.
@@ -146,27 +151,31 @@ def guardar_partidos(conn, partidos: list):
     print(f"  {len(partidos)} partidos guardados/actualizados.")
 
 
+import re
+
+
 def obtener_temporada_disponible(liga_id: int) -> int:
     """
-    Consulta el endpoint /leagues para averiguar qué temporada tiene datos
-    disponibles (coverage) para esta liga en el plan actual de la API.
-    Los planes gratis de API-Football suelen limitar el acceso a temporadas
-    ya finalizadas, no a la temporada en curso.
-    Devuelve la temporada más reciente con fixtures habilitados, o None si no encuentra ninguna.
+    Determina qué temporada usar para esta liga. Intenta primero con TEMPORADA.
+    Si la API responde con el error típico de plan gratis
+    ("Free plans do not have access to this season, try from AAAA to BBBB"),
+    se extrae el rango permitido del propio mensaje y se usa el año más
+    reciente de ese rango automáticamente.
     """
-    data = llamar_api("leagues", {"id": liga_id})
-    if not data or not data.get("response"):
-        return None
+    data = llamar_api("teams", {"league": liga_id, "season": TEMPORADA})
+    if data is None:
+        return TEMPORADA
 
-    temporadas = data["response"][0].get("seasons", [])
-    # Recorremos de la más reciente a la más antigua y devolvemos la primera
-    # que tenga fixtures habilitados en el coverage.
-    for temporada in sorted(temporadas, key=lambda t: t["year"], reverse=True):
-        coverage = temporada.get("coverage", {}).get("fixtures", {})
-        if coverage.get("events") or coverage.get("statistics_fixtures"):
-            return temporada["year"]
+    errores = data.get("errors")
+    if errores and isinstance(errores, dict):
+        mensaje = errores.get("plan", "")
+        match = re.search(r"from (\d{4}) to (\d{4})", mensaje)
+        if match:
+            anio_max = int(match.group(2))
+            print(f"  Ajustando temporada automáticamente a {anio_max} según el rango permitido por tu plan.")
+            return anio_max
 
-    return None
+    return TEMPORADA
 
 
 
@@ -207,7 +216,6 @@ def obtener_equipos_de_liga(liga_id: int, temporada: int) -> list:
             "temporada": temporada,
         })
     return equipos
-
 
 def obtener_partidos_de_liga(liga_id: int, temporada: int) -> list:
     """Trae los fixtures (partidos) ya finalizados de una liga/temporada."""
