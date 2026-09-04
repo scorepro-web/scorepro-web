@@ -62,8 +62,18 @@ def llamar_api(endpoint: str, params: dict) -> dict:
         print(f"Error {response.status_code} al llamar {endpoint}: {response.text[:200]}")
         return None
 
+    data = response.json()
+
+    # Diagnóstico: mostramos siempre cuántos resultados trajo la llamada y si
+    # la API reportó algún error/aviso en el cuerpo de la respuesta (esto no
+    # cuenta como solicitud extra, es solo para leer los logs).
+    n_resultados = len(data.get("response", []))
+    errores = data.get("errors")
+    print(f"  [debug] {endpoint} params={params} -> {n_resultados} resultados"
+          + (f" | errors={errores}" if errores else ""))
+
     time.sleep(1)  # pausa breve entre llamadas, buena práctica con APIs gratuitas
-    return response.json()
+    return data
 
 
 def conectar_db():
