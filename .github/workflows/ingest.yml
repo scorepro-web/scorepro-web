@@ -1,0 +1,29 @@
+name: Ingesta diaria de datos de futbol
+
+on:
+  schedule:
+    # Corre todos los días a las 07:00 UTC (2:00 am hora Colombia aprox.)
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    # Permite correrlo manualmente desde la pestaña "Actions" de GitHub, sin esperar al cron.
+
+jobs:
+  ingesta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar job de ingesta
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python ingest.py
