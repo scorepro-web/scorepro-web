@@ -24,6 +24,11 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
 
+# El plan gratis de API-Football limita a 10 solicitudes por minuto (confirmado por
+# el propio error de la API: "Your rate limit is 10 requests per minute").
+# Con 6.5 segundos entre llamadas nos quedamos cómodamente bajo ese límite (~9.2/min).
+SEGUNDOS_ENTRE_LLAMADAS = 6.5
+
 # ------------------------------------------------------------------
 # CONFIGURACIÓN: qué ligas y temporada vamos a seguir.
 # Empezamos con pocas ligas para no agotar las 100 solicitudes/día.
@@ -49,9 +54,10 @@ TEMPORADA = 2023
 MAX_SOLICITUDES_POR_CORRIDA = 70
 
 # Cuántos partidos como máximo se completan con estadísticas (corners/tarjetas/faltas)
-# en una sola corrida. Se mantiene bajo para no chocar con el límite de solicitudes
-# por minuto de la API (independiente del límite diario de 100).
-MAX_PARTIDOS_ESTADISTICAS_POR_CORRIDA = 25
+# en una sola corrida. Con la pausa de SEGUNDOS_ENTRE_LLAMADAS ya no deberíamos chocar
+# con el límite por minuto, pero mantenemos un tope razonable para no alargar demasiado
+# la duración total del job.
+MAX_PARTIDOS_ESTADISTICAS_POR_CORRIDA = 40
 
 contador_solicitudes = 0
 
@@ -69,8 +75,8 @@ def llamar_api(endpoint: str, params: dict) -> dict:
     contador_solicitudes += 1
 
     if response.status_code == 429:
-        print(f"  Límite por minuto alcanzado en {endpoint}. Pausando 20s antes de continuar...")
-        time.sleep(20)
+        print(f"  Límite por minuto alcanzado en {endpoint}. Pausando 60s antes de continuar...")
+        time.sleep(60)
         return None
 
     if response.status_code != 200:
@@ -87,7 +93,7 @@ def llamar_api(endpoint: str, params: dict) -> dict:
     print(f"  [debug] {endpoint} params={params} -> {n_resultados} resultados"
           + (f" | errors={errores}" if errores else ""))
 
-    time.sleep(2)  # pausa entre llamadas para no golpear el límite por minuto
+    time.sleep(SEGUNDOS_ENTRE_LLAMADAS)  # respeta el límite de 10 solicitudes/minuto
     return data
 
 
