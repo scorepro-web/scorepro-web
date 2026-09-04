@@ -136,7 +136,30 @@ def guardar_partidos(conn, partidos: list):
     print(f"  {len(partidos)} partidos guardados/actualizados.")
 
 
-def obtener_equipos_de_liga(liga_id: int, temporada: int) -> list:
+def obtener_temporada_disponible(liga_id: int) -> int:
+    """
+    Consulta el endpoint /leagues para averiguar qué temporada tiene datos
+    disponibles (coverage) para esta liga en el plan actual de la API.
+    Los planes gratis de API-Football suelen limitar el acceso a temporadas
+    ya finalizadas, no a la temporada en curso.
+    Devuelve la temporada más reciente con fixtures habilitados, o None si no encuentra ninguna.
+    """
+    data = llamar_api("leagues", {"id": liga_id})
+    if not data or not data.get("response"):
+        return None
+
+    temporadas = data["response"][0].get("seasons", [])
+    # Recorremos de la más reciente a la más antigua y devolvemos la primera
+    # que tenga fixtures habilitados en el coverage.
+    for temporada in sorted(temporadas, key=lambda t: t["year"], reverse=True):
+        coverage = temporada.get("coverage", {}).get("fixtures", {})
+        if coverage.get("events") or coverage.get("statistics_fixtures"):
+            return temporada["year"]
+
+    return None
+
+
+
     """Trae los equipos de una liga/temporada desde API-Football."""
     data = llamar_api("teams", {"league": liga_id, "season": temporada})
     if not data or "response" not in data:
@@ -253,10 +276,17 @@ def main():
     for liga in LIGAS_SEGUIDAS:
         print(f"\nProcesando liga: {liga['nombre']} (id {liga['id']})")
 
-        equipos = obtener_equipos_de_liga(liga["id"], TEMPORADA)
+        temporada_real = obtener_temporada_disponible(liga["id"])
+        if temporada_real is None:
+            print(f"  No se encontró ninguna temporada con datos disponibles para esta liga en tu plan. Se omite.")
+            continue
+        if temporada_real != TEMPORADA:
+            print(f"  Aviso: la temporada configurada ({TEMPORADA}) no tiene datos en tu plan. Usando {temporada_real} en su lugar.")
+
+        equipos = obtener_equipos_de_liga(liga["id"], temporada_real)
         guardar_equipos(conn, equipos)
 
-        partidos = obtener_partidos_de_liga(liga["id"], TEMPORADA)
+        partidos = obtener_partidos_de_liga(liga["id"], temporada_real)
         guardar_partidos(conn, partidos)
 
     # Con lo que quede de cuota, completamos estadísticas (corners/tarjetas/faltas)
