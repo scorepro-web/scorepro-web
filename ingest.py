@@ -179,6 +179,26 @@ def obtener_temporada_disponible(liga_id: int) -> int:
     return equipos
 
 
+def obtener_equipos_de_liga(liga_id: int, temporada: int) -> list:
+    """Trae los equipos de una liga/temporada desde API-Football."""
+    data = llamar_api("teams", {"league": liga_id, "season": temporada})
+    if not data or "response" not in data:
+        return []
+
+    equipos = []
+    for item in data["response"]:
+        equipo = item["team"]
+        equipos.append({
+            "id": equipo["id"],
+            "nombre": equipo["name"],
+            "liga": str(liga_id),
+            "pais": equipo.get("country"),
+            "logo_url": equipo.get("logo"),
+            "temporada": temporada,
+        })
+    return equipos
+
+
 def obtener_partidos_de_liga(liga_id: int, temporada: int) -> list:
     """Trae los fixtures (partidos) ya finalizados de una liga/temporada."""
     data = llamar_api("fixtures", {"league": liga_id, "season": temporada, "status": "FT"})
