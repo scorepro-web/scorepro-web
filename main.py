@@ -12,7 +12,7 @@ import psycopg2
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from prediction_engine import calcular_stats_equipo, calcular_h2h, generar_prediccion
+from prediction_engine import calcular_stats_equipo, calcular_h2h, calcular_stats_arbitro, generar_prediccion
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -115,8 +115,10 @@ def comparar_equipos(a: int = Query(..., description="id del equipo A"), b: int 
 def prediccion_partido(
     a: int = Query(..., description="id del equipo local"),
     b: int = Query(..., description="id del equipo visitante"),
+    arbitro: str | None = Query(default=None, description="Nombre del árbitro asignado (opcional)"),
 ):
-    """Genera la predicción de un partido entre el equipo A (local) y el equipo B (visitante)."""
+    """Genera la predicción de un partido entre el equipo A (local) y el equipo B (visitante).
+    Si se indica el nombre del árbitro asignado, se usa su historial de tarjetas como ajuste."""
     conn = conectar_db()
     try:
         with conn.cursor() as cur:
@@ -129,7 +131,8 @@ def prediccion_partido(
         stats_a = calcular_stats_equipo(conn, a)
         stats_b = calcular_stats_equipo(conn, b)
         h2h = calcular_h2h(conn, a, b)
-        prediccion = generar_prediccion(stats_a, stats_b, h2h, condicion_a="local")
+        stats_arbitro = calcular_stats_arbitro(conn, arbitro) if arbitro else None
+        prediccion = generar_prediccion(stats_a, stats_b, h2h, condicion_a="local", stats_arbitro=stats_arbitro)
     finally:
         conn.close()
 
