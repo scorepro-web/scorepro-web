@@ -141,6 +141,42 @@ def calcular_h2h(conn, equipo_a_id: int, equipo_b_id: int, limite: int = 10) -> 
     }
 
 
+def calcular_stats_arbitro(conn, nombre_arbitro: str) -> dict:
+    """
+    Calcula el promedio de tarjetas que muestra un árbitro específico,
+    a partir de los partidos que ha dirigido y que ya tienen estadísticas cargadas.
+    Devuelve None si no hay suficientes partidos para que el dato sea confiable.
+    """
+    if not nombre_arbitro:
+        return None
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            select tarjetas_amarillas_local, tarjetas_amarillas_visitante,
+                   tarjetas_rojas_local, tarjetas_rojas_visitante
+            from partidos
+            where arbitro = %s and finalizado = true and tarjetas_amarillas_local is not null
+        """, (nombre_arbitro,))
+        partidos = cur.fetchall()
+
+    # Con menos de 3 partidos dirigidos en nuestros datos, el promedio no es confiable;
+    # mejor no aplicar el ajuste que aplicar uno basado en un solo partido.
+    if len(partidos) < 3:
+        return None
+
+    totales = [
+        (p[0] or 0) + (p[1] or 0) + (p[2] or 0) + (p[3] or 0)
+        for p in partidos
+    ]
+    promedio = round(sum(totales) / len(totales), 2)
+
+    return {
+        "nombre": nombre_arbitro,
+        "partidos_dirigidos": len(partidos),
+        "tarjetas_promedio": promedio,
+    }
+
+
 # ------------------------------------------------------------------
 # PARTE 2: Modelo de predicción (Poisson)
 # ------------------------------------------------------------------
@@ -160,15 +196,17 @@ def _probabilidad_mayor_a(lam: float, umbral: float) -> float:
     return round(1 - acumulado, 3)
 
 
-def generar_prediccion(stats_a: dict, stats_b: dict, h2h: dict, condicion_a: str = "local") -> dict:
+def generar_prediccion(stats_a: dict, stats_b: dict, h2h: dict, condicion_a: str = "local", stats_arbitro: dict = None) -> dict:
     """
     Genera la predicción de un partido entre equipo_a y equipo_b.
     condicion_a: "local" o "visitante" — de qué lado juega el equipo_a.
+    stats_arbitro: resultado de calcular_stats_arbitro(), o None si no hay dato confiable.
 
     Metodología (Poisson ajustado):
     1. Fuerza de ataque/defensa de cada equipo en su condición (local/visitante).
     2. Goles esperados = ataque del equipo x debilidad defensiva del rival.
-    3. Se pondera con la forma reciente (peso menor) y con el historial H2H (peso menor).
+    3. Se pondera con la forma reciente (peso menor), el historial H2H (peso menor) y,
+       si está disponible, el promedio de tarjetas del árbitro asignado (peso menor).
     4. Se aplica Poisson sobre el resultado combinado para sacar probabilidades.
     """
     if condicion_a == "local":
@@ -213,6 +251,21 @@ def generar_prediccion(stats_a: dict, stats_b: dict, h2h: dict, condicion_a: str
         (stats_a["tarjetas_prom"] + stats_b["tarjetas_prom"]), 2
     ) or 4.0
 
+    # Ajuste por árbitro: si tenemos un promedio confiable (3+ partidos dirigidos),
+    # se pondera con 25% de peso sobre el promedio de tarjetas de los equipos.
+    # Algunos árbitros muestran sistemáticamente más o menos tarjetas que el promedio
+    # de la liga, y ese patrón es independiente del comportamiento de los equipos.
+    arbitro_info = None
+    if stats_arbitro:
+        tarjetas_esperadas = round(
+            tarjetas_esperadas * 0.75 + stats_arbitro["tarjetas_promedio"] * 0.25, 2
+        )
+        arbitro_info = {
+            "nombre": stats_arbitro["nombre"],
+            "partidos_dirigidos": stats_arbitro["partidos_dirigidos"],
+            "tarjetas_promedio": stats_arbitro["tarjetas_promedio"],
+        }
+
     # Matriz de probabilidades de marcador exacto (0-0 hasta 5-5)
     matriz_marcadores = []
     for goles_a in range(0, 6):
@@ -238,6 +291,7 @@ def generar_prediccion(stats_a: dict, stats_b: dict, h2h: dict, condicion_a: str
         "prob_mas_9_5_corners": _probabilidad_mayor_a(corners_esperados, 9.5),
         "tarjetas_esperadas": tarjetas_esperadas,
         "prob_mas_3_5_tarjetas": _probabilidad_mayor_a(tarjetas_esperadas, 3.5),
+        "arbitro": arbitro_info,
         "marcadores_mas_probables": [
             {"marcador": m["marcador"], "probabilidad_pct": round(m["probabilidad"] * 100, 1)}
             for m in marcadores_mas_probables
