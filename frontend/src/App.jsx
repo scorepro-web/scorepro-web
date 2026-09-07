@@ -283,6 +283,7 @@ function VistaComparador() {
   const [equipos, setEquipos] = useState([]);
   const [equipoLocal, setEquipoLocal] = useState(null);
   const [equipoVisitante, setEquipoVisitante] = useState(null);
+  const [arbitro, setArbitro] = useState("");
   const [comparacion, setComparacion] = useState(null);
   const [prediccion, setPrediccion] = useState(null);
   const [cargando, setCargando] = useState(false);
@@ -316,7 +317,7 @@ function VistaComparador() {
         if (!r.ok) throw new Error("No se pudo comparar los equipos.");
         return r.json();
       }),
-      fetch(`${API_URL}/prediccion?a=${equipoLocal}&b=${equipoVisitante}`).then((r) => {
+      fetch(`${API_URL}/prediccion?a=${equipoLocal}&b=${equipoVisitante}${arbitro.trim() ? `&arbitro=${encodeURIComponent(arbitro.trim())}` : ""}`).then((r) => {
         if (!r.ok) throw new Error("No se pudo generar la predicción.");
         return r.json();
       }),
@@ -372,6 +373,21 @@ function VistaComparador() {
         >
           {cargando ? "Comparando…" : "Comparar"}
         </button>
+      </div>
+
+      <div className="arbitro-input-wrap">
+        <label className="selector-etiqueta">Árbitro asignado (opcional)</label>
+        <input
+          type="text"
+          className="selector-input arbitro-input"
+          placeholder="Ej. Antonio Mateu Lahoz"
+          value={arbitro}
+          onChange={(e) => setArbitro(e.target.value)}
+        />
+        <span className="arbitro-nota">
+          Si lo indicas, ajustamos la predicción de tarjetas con su historial (solo
+          disponible si tenemos 3 o más partidos suyos registrados).
+        </span>
       </div>
 
       {equipoLocal && equipoVisitante && equipoLocal === equipoVisitante && (
@@ -474,6 +490,20 @@ function VistaComparador() {
                 </span>
               </div>
             </div>
+
+            {prediccion.prediccion.arbitro && (
+              <p className="arbitro-aplicado">
+                Ajustado con el historial de {prediccion.prediccion.arbitro.nombre} (
+                {prediccion.prediccion.arbitro.partidos_dirigidos} partidos dirigidos,
+                promedio de {prediccion.prediccion.arbitro.tarjetas_promedio} tarjetas).
+              </p>
+            )}
+            {arbitro.trim() && !prediccion.prediccion.arbitro && (
+              <p className="arbitro-aplicado">
+                No encontramos suficiente historial de "{arbitro}" en nuestros datos
+                (mínimo 3 partidos), así que la predicción no incluye este ajuste.
+              </p>
+            )}
 
             <div className="marcadores-probables">
               <span className="panel-title" style={{ marginBottom: 8 }}>
