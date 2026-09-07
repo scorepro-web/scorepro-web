@@ -286,6 +286,8 @@ function VistaComparador() {
   const [arbitro, setArbitro] = useState("");
   const [comparacion, setComparacion] = useState(null);
   const [prediccion, setPrediccion] = useState(null);
+  const [analisis, setAnalisis] = useState(null);
+  const [cargandoAnalisis, setCargandoAnalisis] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
 
@@ -311,6 +313,7 @@ function VistaComparador() {
     setError(null);
     setComparacion(null);
     setPrediccion(null);
+    setAnalisis(null);
 
     Promise.all([
       fetch(`${API_URL}/comparar?a=${equipoLocal}&b=${equipoVisitante}`).then((r) => {
@@ -330,6 +333,25 @@ function VistaComparador() {
       .catch((err) => {
         setError(err.message);
         setCargando(false);
+      });
+  }
+
+  function generarAnalisis() {
+    setCargandoAnalisis(true);
+    setAnalisis(null);
+    const params = `a=${equipoLocal}&b=${equipoVisitante}${arbitro.trim() ? `&arbitro=${encodeURIComponent(arbitro.trim())}` : ""}`;
+    fetch(`${API_URL}/prediccion/analisis?${params}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("No se pudo generar el análisis con IA.");
+        return r.json();
+      })
+      .then((data) => {
+        setAnalisis(data.analisis);
+        setCargandoAnalisis(false);
+      })
+      .catch(() => {
+        setAnalisis("No se pudo generar el análisis en este momento. Intenta de nuevo en unos segundos.");
+        setCargandoAnalisis(false);
       });
   }
 
@@ -516,6 +538,24 @@ function VistaComparador() {
                   </span>
                 ))}
               </div>
+            </div>
+
+            <div className="analisis-ia-wrap">
+              {!analisis && (
+                <button
+                  className="analisis-ia-boton"
+                  onClick={generarAnalisis}
+                  disabled={cargandoAnalisis}
+                >
+                  {cargandoAnalisis ? "Generando análisis…" : "✨ Generar análisis con IA"}
+                </button>
+              )}
+              {analisis && (
+                <div className="analisis-ia-texto">
+                  <span className="analisis-ia-etiqueta">Análisis</span>
+                  <p>{analisis}</p>
+                </div>
+              )}
             </div>
           </section>
         </>
