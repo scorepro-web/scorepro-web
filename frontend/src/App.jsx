@@ -3,13 +3,22 @@ import { useEffect, useState } from "react";
 // URL del backend ya desplegado en Render (Etapa 3).
 const API_URL = "https://scorepro-web.onrender.com";
 
+// Ligas soportadas por el backend (Etapa 6: se agregó Premier League a La Liga).
+const LIGAS = [
+  { id: "140", nombre: "La Liga" },
+  { id: "39", nombre: "Premier League" },
+];
+
 function VistaEquipos({ onSeleccionarEquipo }) {
+  const [liga, setLiga] = useState(LIGAS[0].id);
   const [equipos, setEquipos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/equipos`)
+    setCargando(true);
+    setError(null);
+    fetch(`${API_URL}/equipos?liga=${liga}`)
       .then((res) => {
         if (!res.ok) throw new Error("El servidor respondió con un error.");
         return res.json();
@@ -22,13 +31,25 @@ function VistaEquipos({ onSeleccionarEquipo }) {
         setError(err.message);
         setCargando(false);
       });
-  }, []);
+  }, [liga]);
 
   return (
     <>
       <div className="content-header">
-        <h1>La Liga · 2023-2024</h1>
+        <h1>{LIGAS.find((l) => l.id === liga)?.nombre} · 2023-2024</h1>
         <p>Selecciona un equipo para ver sus estadísticas de la temporada.</p>
+      </div>
+
+      <div className="liga-tabs">
+        {LIGAS.map((l) => (
+          <button
+            key={l.id}
+            className={`liga-tab ${liga === l.id ? "active" : ""}`}
+            onClick={() => setLiga(l.id)}
+          >
+            {l.nombre}
+          </button>
+        ))}
       </div>
 
       {cargando && (
@@ -258,6 +279,7 @@ function SelectorEquipo({ equipos, valor, onCambiar, etiqueta }) {
 }
 
 function VistaComparador() {
+  const [liga, setLiga] = useState(LIGAS[0].id);
   const [equipos, setEquipos] = useState([]);
   const [equipoLocal, setEquipoLocal] = useState(null);
   const [equipoVisitante, setEquipoVisitante] = useState(null);
@@ -267,11 +289,18 @@ function VistaComparador() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/equipos`)
+    fetch(`${API_URL}/equipos?liga=${liga}`)
       .then((res) => res.json())
-      .then(setEquipos)
+      .then((data) => {
+        setEquipos(data);
+        // Al cambiar de liga, los equipos elegidos antes ya no aplican.
+        setEquipoLocal(null);
+        setEquipoVisitante(null);
+        setComparacion(null);
+        setPrediccion(null);
+      })
       .catch(() => setError("No se pudo cargar la lista de equipos."));
-  }, []);
+  }, [liga]);
 
   const puedeComparar =
     equipoLocal && equipoVisitante && equipoLocal !== equipoVisitante;
@@ -308,6 +337,18 @@ function VistaComparador() {
       <div className="content-header">
         <h1>Comparador de equipos</h1>
         <p>Elige un local y un visitante para ver la predicción del partido.</p>
+      </div>
+
+      <div className="liga-tabs">
+        {LIGAS.map((l) => (
+          <button
+            key={l.id}
+            className={`liga-tab ${liga === l.id ? "active" : ""}`}
+            onClick={() => setLiga(l.id)}
+          >
+            {l.nombre}
+          </button>
+        ))}
       </div>
 
       <div className="comparador-selectores">
