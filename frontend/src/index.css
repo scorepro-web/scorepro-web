@@ -114,6 +114,37 @@ body {
   font-size: 15px;
 }
 
+/* ---------- Liga tabs ---------- */
+
+.liga-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.liga-tab {
+  padding: 8px 16px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+
+.liga-tab.active {
+  background: var(--pitch-900);
+  border-color: var(--pitch-900);
+  color: var(--paper-0);
+}
+
+.liga-tab:not(.active):hover {
+  border-color: var(--gold-500);
+  color: var(--pitch-900);
+}
+
 /* ---------- Status blocks (loading / error) ---------- */
 
 .status-block {
