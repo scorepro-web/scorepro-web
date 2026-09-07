@@ -41,6 +41,7 @@ SEGUNDOS_ENTRE_LLAMADAS = 6.5
 # ------------------------------------------------------------------
 LIGAS_SEGUIDAS = [
     {"id": 140, "nombre": "La Liga"},
+    {"id": 39, "nombre": "Premier League"},
 ]
 # IMPORTANTE: los planes gratis de API-Football solo dan acceso a un rango fijo
 # de temporadas históricas (confirmado por la propia API: "Free plans do not have
@@ -307,15 +308,18 @@ def obtener_estadisticas_partido(conn, fixture_id: int):
     conn.commit()
 
 
-def partidos_sin_estadisticas(conn, limite: int) -> list:
-    """Devuelve ids de partidos finalizados que aún no tienen corners/tarjetas cargados."""
+def partidos_sin_estadisticas(conn, liga_id: str, limite: int) -> list:
+    """Devuelve ids de partidos finalizados de una liga específica que aún no
+    tienen corners/tarjetas cargados. Se filtra por liga para que, cuando hay
+    varias ligas configuradas, cada una reciba su propia porción de cuota en
+    vez de que una sola acapare todos los partidos más recientes."""
     with conn.cursor() as cur:
         cur.execute("""
             select id from partidos
-            where finalizado = true and corners_local is null
+            where finalizado = true and corners_local is null and liga = %s
             order by fecha desc
             limit %s
-        """, (limite,))
+        """, (liga_id, limite))
         return [row[0] for row in cur.fetchall()]
 
 
@@ -344,14 +348,20 @@ def main():
         guardar_partidos(conn, partidos)
 
     # Con lo que quede de cuota, completamos estadísticas (corners/tarjetas/faltas)
-    # de los partidos más recientes que aún no las tengan.
-    restantes = min(
+    # de los partidos más recientes que aún no las tengan. Se reparte la cuota
+    # equitativamente entre las ligas configuradas, para que ninguna acapare
+    # todo el presupuesto diario a costa de las demás.
+    restantes_totales = min(
         MAX_SOLICITUDES_POR_CORRIDA - contador_solicitudes,
         MAX_PARTIDOS_ESTADISTICAS_POR_CORRIDA,
     )
-    if restantes > 0:
-        pendientes = partidos_sin_estadisticas(conn, restantes)
-        print(f"\nCompletando estadísticas de {len(pendientes)} partidos...")
+    cupo_por_liga = max(restantes_totales // len(LIGAS_SEGUIDAS), 1) if LIGAS_SEGUIDAS else 0
+
+    for liga in LIGAS_SEGUIDAS:
+        if contador_solicitudes >= MAX_SOLICITUDES_POR_CORRIDA:
+            break
+        pendientes = partidos_sin_estadisticas(conn, str(liga["id"]), cupo_por_liga)
+        print(f"\nCompletando estadísticas de {len(pendientes)} partidos de {liga['nombre']}...")
         for fixture_id in pendientes:
             obtener_estadisticas_partido(conn, fixture_id)
 
