@@ -9,12 +9,14 @@ Variables de entorno requeridas:
 
 import os
 import psycopg2
+import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from prediction_engine import calcular_stats_equipo, calcular_h2h, calcular_stats_arbitro, generar_prediccion
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 app = FastAPI(title="ScorePro Web API", version="1.0")
 
@@ -140,4 +142,59 @@ def prediccion_partido(
         "equipo_local": {"id": a, "nombre": filas[a]},
         "equipo_visitante": {"id": b, "nombre": filas[b]},
         "prediccion": prediccion,
+    }
+
+
+@app.get("/prediccion/analisis")
+def analisis_prediccion(
+    a: int = Query(..., description="id del equipo local"),
+    b: int = Query(..., description="id del equipo visitante"),
+    arbitro: str | None = Query(default=None, description="Nombre del árbitro asignado (opcional)"),
+):
+    """
+    Genera un análisis en lenguaje natural de la predicción de un partido, usando la
+    API gratuita de Google Gemini. IMPORTANTE: el modelo NO calcula ningún número por su
+    cuenta — solo recibe los datos ya calculados por generar_prediccion() y los explica
+    en palabras. Esto evita que la IA "invente" probabilidades no basadas en cálculo real.
+    """
+    if not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="El análisis con IA no está configurado en este servidor (falta GEMINI_API_KEY).",
+        )
+
+    # Reutilizamos toda la lógica ya existente para obtener los mismos datos
+    # que vería el usuario en /prediccion, sin duplicar código.
+    datos = prediccion_partido(a=a, b=b, arbitro=arbitro)
+
+    prompt = f"""Eres un analista deportivo. Con estos datos YA CALCULADOS de un partido
+de fútbol, escribe un análisis breve (máximo 3 frases, en español, tono cercano pero
+profesional) explicando qué se puede esperar del partido. NO inventes ni cambies ningún
+número: solo interpreta los que te doy.
+
+Datos del partido:
+{datos}
+
+Responde solo con el análisis en texto, sin encabezados ni listas."""
+
+    try:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 300},
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        cuerpo = response.json()
+        texto = cuerpo["candidates"][0]["content"]["parts"][0]["text"]
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo generar el análisis: {e}")
+
+    return {
+        "equipo_local": datos["equipo_local"],
+        "equipo_visitante": datos["equipo_visitante"],
+        "prediccion": datos["prediccion"],
+        "analisis": texto.strip(),
     }
