@@ -505,6 +505,55 @@ body {
   color: rgba(250, 248, 243, 0.8);
 }
 
+/* ---------- Análisis con IA ---------- */
+
+.analisis-ia-wrap {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(250, 248, 243, 0.15);
+}
+
+.analisis-ia-boton {
+  padding: 10px 18px;
+  background: rgba(212, 169, 74, 0.15);
+  border: 1px solid rgba(212, 169, 74, 0.4);
+  border-radius: 8px;
+  color: var(--gold-500);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.analisis-ia-boton:hover:not(:disabled) {
+  background: rgba(212, 169, 74, 0.25);
+}
+
+.analisis-ia-boton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analisis-ia-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analisis-ia-etiqueta {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--gold-500);
+}
+
+.analisis-ia-texto p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(250, 248, 243, 0.9);
+}
+
 /* ---------- Versus header ---------- */
 
 .versus-header {
