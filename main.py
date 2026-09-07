@@ -18,6 +18,12 @@ from prediction_engine import calcular_stats_equipo, calcular_h2h, calcular_stat
 DATABASE_URL = os.environ.get("DATABASE_URL")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Caché en memoria del modelo de Gemini elegido, para no tener que volver a
+# consultar ListModels en cada llamada (ahorra tiempo y evita timeouts).
+# Se resetea si el servidor se reinicia, lo cual está bien: simplemente
+# vuelve a detectar el modelo disponible en ese momento.
+_modelo_gemini_cache = {"nombre": None}
+
 app = FastAPI(title="ScorePro Web API", version="1.0")
 
 # Permite que el frontend (en otro dominio, ej. Vercel) pueda llamar a este backend.
@@ -168,9 +174,14 @@ def analisis_prediccion(
     datos = prediccion_partido(a=a, b=b, arbitro=arbitro)
 
     prompt = f"""Eres un analista deportivo. Con estos datos YA CALCULADOS de un partido
-de fútbol, escribe un análisis breve (máximo 3 frases, en español, tono cercano pero
-profesional) explicando qué se puede esperar del partido. NO inventes ni cambies ningún
-número: solo interpreta los que te doy.
+de fútbol, escribe un análisis breve (2 a 3 frases completas, en español, tono cercano
+pero profesional) explicando qué se puede esperar del partido. NO inventes ni cambies
+ningún número: solo interpreta los que te doy.
+
+Menciona explícitamente al menos dos cifras concretas de los datos (por ejemplo los
+goles esperados de cada equipo, la probabilidad de un umbral, o el marcador más
+probable), en vez de quedarte solo en frases genéricas de ambiente o rivalidad.
+Asegúrate de terminar todas las frases: no dejes ninguna a medias.
 
 Datos del partido:
 {datos}
@@ -178,66 +189,84 @@ Datos del partido:
 Responde solo con el análisis en texto, sin encabezados ni listas."""
 
     try:
-        # Primero preguntamos qué modelo está disponible ahora mismo para esta cuenta,
-        # en vez de fijar un nombre de modelo específico en el código. Los nombres de
-        # modelos de Gemini cambian con cierta frecuencia (versiones se retiran), así
-        # que esto evita que el endpoint se rompa cada vez que Google actualiza su catálogo.
-        lista_modelos = requests.get(
-            f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}",
-            timeout=15,
-        )
-        lista_modelos.raise_for_status()
-        modelos_disponibles = lista_modelos.json().get("models", [])
+        if _modelo_gemini_cache["nombre"]:
+            # Ya detectamos un modelo válido en una llamada anterior de esta misma
+            # ejecución del servidor: lo reutilizamos y nos ahorramos la consulta
+            # a ListModels, que es la que más tiempo consume.
+            modelo_elegido = _modelo_gemini_cache["nombre"]
+        else:
+            # Primero preguntamos qué modelo está disponible ahora mismo para esta
+            # cuenta, en vez de fijar un nombre de modelo específico en el código.
+            # Los nombres de modelos de Gemini cambian con cierta frecuencia
+            # (versiones se retiran), así que esto evita que el endpoint se rompa
+            # cada vez que Google actualiza su catálogo.
+            lista_modelos = requests.get(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}",
+                timeout=20,
+            )
+            lista_modelos.raise_for_status()
+            modelos_disponibles = lista_modelos.json().get("models", [])
 
-        modelo_elegido = None
+            modelo_elegido = None
 
-        # Preferencia 1: el alias "gemini-flash-latest", que Google mantiene
-        # apuntando siempre al modelo flash vigente más reciente, sin que
-        # tengamos que actualizar el código cada vez que cambian versiones.
-        for m in modelos_disponibles:
-            nombre = m.get("name", "")
-            if nombre == "models/gemini-flash-latest" and "generateContent" in m.get("supportedGenerationMethods", []):
-                modelo_elegido = nombre
-                break
-
-        # Preferencia 2: si el alias no está disponible, buscamos modelos "flash"
-        # recientes con nombre de versión explícita, evitando variantes legacy,
-        # preview, lite, o especializadas en imagen/audio/tts.
-        if modelo_elegido is None:
-            candidatos_preferidos = []
+            # Preferencia 1: el alias "gemini-flash-latest", que Google mantiene
+            # apuntando siempre al modelo flash vigente más reciente, sin que
+            # tengamos que actualizar el código cada vez que cambian versiones.
             for m in modelos_disponibles:
                 nombre = m.get("name", "")
-                metodos = m.get("supportedGenerationMethods", [])
-                nombre_lower = nombre.lower()
-                if "generateContent" not in metodos or "flash" not in nombre_lower:
-                    continue
-                if any(palabra in nombre_lower for palabra in
-                       ["2.5", "2.0", "preview", "lite", "image", "tts", "audio", "banana", "latest"]):
-                    continue
-                candidatos_preferidos.append(nombre)
-            if candidatos_preferidos:
-                candidatos_preferidos.sort(reverse=True)
-                modelo_elegido = candidatos_preferidos[0]
-
-        if modelo_elegido is None:
-            # Último respaldo: cualquier modelo con generateContent, evitando al
-            # menos el que Google ya confirmó que está retirado.
-            for m in modelos_disponibles:
-                nombre = m.get("name", "")
-                if "generateContent" in m.get("supportedGenerationMethods", []) and "gemini-2.5-flash" != nombre.replace("models/", ""):
+                if nombre == "models/gemini-flash-latest" and "generateContent" in m.get("supportedGenerationMethods", []):
                     modelo_elegido = nombre
                     break
 
-        if modelo_elegido is None:
-            raise HTTPException(status_code=502, detail="No se encontró ningún modelo de Gemini disponible para generar texto.")
+            # Preferencia 2: si el alias no está disponible, buscamos modelos
+            # "flash" recientes con nombre de versión explícita, evitando
+            # variantes legacy, preview, lite, o especializadas en imagen/audio/tts.
+            if modelo_elegido is None:
+                candidatos_preferidos = []
+                for m in modelos_disponibles:
+                    nombre = m.get("name", "")
+                    metodos = m.get("supportedGenerationMethods", [])
+                    nombre_lower = nombre.lower()
+                    if "generateContent" not in metodos or "flash" not in nombre_lower:
+                        continue
+                    if any(palabra in nombre_lower for palabra in
+                           ["2.5", "2.0", "preview", "lite", "image", "tts", "audio", "banana", "latest"]):
+                        continue
+                    candidatos_preferidos.append(nombre)
+                if candidatos_preferidos:
+                    candidatos_preferidos.sort(reverse=True)
+                    modelo_elegido = candidatos_preferidos[0]
+
+            if modelo_elegido is None:
+                # Último respaldo: cualquier modelo con generateContent, evitando
+                # al menos el que Google ya confirmó que está retirado.
+                for m in modelos_disponibles:
+                    nombre = m.get("name", "")
+                    if "generateContent" in m.get("supportedGenerationMethods", []) and "gemini-2.5-flash" != nombre.replace("models/", ""):
+                        modelo_elegido = nombre
+                        break
+
+            if modelo_elegido is None:
+                raise HTTPException(status_code=502, detail="No se encontró ningún modelo de Gemini disponible para generar texto.")
+
+            # Guardamos el resultado en caché para las siguientes llamadas.
+            _modelo_gemini_cache["nombre"] = modelo_elegido
 
         response = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/{modelo_elegido}:generateContent?key={GEMINI_API_KEY}",
             json={
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 300},
+                "generationConfig": {
+                    "maxOutputTokens": 500,
+                    # Los modelos Gemini 3.x razonan internamente antes de responder
+                    # (thinking), lo cual consume parte del presupuesto de tokens.
+                    # Para un texto corto como este, no necesitamos ese razonamiento
+                    # profundo: lo desactivamos para que todo el presupuesto de
+                    # tokens se use en la respuesta final, evitando que se corte.
+                    "thinkingConfig": {"thinkingBudget": 0},
+                },
             },
-            timeout=30,
+            timeout=45,
         )
         response.raise_for_status()
         cuerpo = response.json()
