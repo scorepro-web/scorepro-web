@@ -477,6 +477,34 @@ body {
   background: var(--pitch-700);
 }
 
+/* ---------- Árbitro (opcional) ---------- */
+
+.arbitro-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 360px;
+  margin-bottom: 28px;
+}
+
+.arbitro-input {
+  width: 100%;
+}
+
+.arbitro-nota {
+  font-size: 12px;
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+
+.arbitro-aplicado {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid rgba(250, 248, 243, 0.15);
+  font-size: 13px;
+  color: rgba(250, 248, 243, 0.8);
+}
+
 /* ---------- Versus header ---------- */
 
 .versus-header {
