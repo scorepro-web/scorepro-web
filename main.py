@@ -219,7 +219,10 @@ Responde solo con el análisis en texto, sin encabezados ni listas."""
         cuerpo = response.json()
         texto = cuerpo["candidates"][0]["content"]["parts"][0]["text"]
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"No se pudo generar el análisis: {e}")
+        detalle_extra = ""
+        if e.response is not None:
+            detalle_extra = f" | Respuesta de Google: {e.response.text[:300]}"
+        raise HTTPException(status_code=502, detail=f"No se pudo generar el análisis: {e}{detalle_extra}")
 
     return {
         "equipo_local": datos["equipo_local"],
