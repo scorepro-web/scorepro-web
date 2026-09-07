@@ -178,8 +178,37 @@ Datos del partido:
 Responde solo con el análisis en texto, sin encabezados ni listas."""
 
     try:
+        # Primero preguntamos qué modelo está disponible ahora mismo para esta cuenta,
+        # en vez de fijar un nombre de modelo específico en el código. Los nombres de
+        # modelos de Gemini cambian con cierta frecuencia (versiones se retiran), así
+        # que esto evita que el endpoint se rompa cada vez que Google actualiza su catálogo.
+        lista_modelos = requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}",
+            timeout=15,
+        )
+        lista_modelos.raise_for_status()
+        modelos_disponibles = lista_modelos.json().get("models", [])
+
+        modelo_elegido = None
+        for m in modelos_disponibles:
+            nombre = m.get("name", "")
+            metodos = m.get("supportedGenerationMethods", [])
+            # Preferimos un modelo "flash" (más rápido/barato) si está disponible.
+            if "generateContent" in metodos and "flash" in nombre.lower():
+                modelo_elegido = nombre
+                break
+        if modelo_elegido is None:
+            # Si no hay ningún "flash", usamos el primero que soporte generateContent.
+            for m in modelos_disponibles:
+                if "generateContent" in m.get("supportedGenerationMethods", []):
+                    modelo_elegido = m.get("name")
+                    break
+
+        if modelo_elegido is None:
+            raise HTTPException(status_code=502, detail="No se encontró ningún modelo de Gemini disponible para generar texto.")
+
         response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
+            f"https://generativelanguage.googleapis.com/v1beta/{modelo_elegido}:generateContent?key={GEMINI_API_KEY}",
             json={
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"maxOutputTokens": 300},
