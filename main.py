@@ -190,18 +190,42 @@ Responde solo con el análisis en texto, sin encabezados ni listas."""
         modelos_disponibles = lista_modelos.json().get("models", [])
 
         modelo_elegido = None
+
+        # Preferencia 1: el alias "gemini-flash-latest", que Google mantiene
+        # apuntando siempre al modelo flash vigente más reciente, sin que
+        # tengamos que actualizar el código cada vez que cambian versiones.
         for m in modelos_disponibles:
             nombre = m.get("name", "")
-            metodos = m.get("supportedGenerationMethods", [])
-            # Preferimos un modelo "flash" (más rápido/barato) si está disponible.
-            if "generateContent" in metodos and "flash" in nombre.lower():
+            if nombre == "models/gemini-flash-latest" and "generateContent" in m.get("supportedGenerationMethods", []):
                 modelo_elegido = nombre
                 break
+
+        # Preferencia 2: si el alias no está disponible, buscamos modelos "flash"
+        # recientes con nombre de versión explícita, evitando variantes legacy,
+        # preview, lite, o especializadas en imagen/audio/tts.
         if modelo_elegido is None:
-            # Si no hay ningún "flash", usamos el primero que soporte generateContent.
+            candidatos_preferidos = []
             for m in modelos_disponibles:
-                if "generateContent" in m.get("supportedGenerationMethods", []):
-                    modelo_elegido = m.get("name")
+                nombre = m.get("name", "")
+                metodos = m.get("supportedGenerationMethods", [])
+                nombre_lower = nombre.lower()
+                if "generateContent" not in metodos or "flash" not in nombre_lower:
+                    continue
+                if any(palabra in nombre_lower for palabra in
+                       ["2.5", "2.0", "preview", "lite", "image", "tts", "audio", "banana", "latest"]):
+                    continue
+                candidatos_preferidos.append(nombre)
+            if candidatos_preferidos:
+                candidatos_preferidos.sort(reverse=True)
+                modelo_elegido = candidatos_preferidos[0]
+
+        if modelo_elegido is None:
+            # Último respaldo: cualquier modelo con generateContent, evitando al
+            # menos el que Google ya confirmó que está retirado.
+            for m in modelos_disponibles:
+                nombre = m.get("name", "")
+                if "generateContent" in m.get("supportedGenerationMethods", []) and "gemini-2.5-flash" != nombre.replace("models/", ""):
+                    modelo_elegido = nombre
                     break
 
         if modelo_elegido is None:
